@@ -8,91 +8,37 @@
 </head>
 <body>
 
-  <!-- 顶部状态栏 -->
+  <!-- ====== 顶栏 ====== -->
   <header class="topbar">
     <div class="logo">🎙️ VoiceDraw</div>
     <div class="status-area">
       <span id="status-dot" class="status-dot idle"></span>
       <span id="status-text">等待语音指令...</span>
     </div>
-    <div class="toolbar-right">
-      <button class="icon-btn" title="撤销（说"撤销"）">↩</button>
-      <button class="icon-btn" title="清空（说"清空"）">🗑</button>
-      <button class="icon-btn" title="保存（说"保存"）">💾</button>
-      <button class="icon-btn" title="帮助">❓</button>
-    </div>
   </header>
 
+  <!-- ====== 主体 ====== -->
   <main class="main-layout">
 
-    <!-- 画布区域 -->
+    <!-- 画布区 -->
     <section class="canvas-area">
-      <canvas id="main-canvas"></canvas>
+      <div class="sketchbook">
+        <canvas id="main-canvas"></canvas>
+      </div>
     </section>
 
-    <!-- 右侧控制面板 -->
+    <!-- 侧面板 — 仅麦克风按钮 -->
     <aside class="side-panel">
-
-      <!-- 麦克风按钮 -->
       <div class="mic-section">
-        <button class="mic-btn">
+        <button class="mic-btn" id="mic-btn">
           <span class="mic-icon">🎙️</span>
           <span class="mic-label">按住说话</span>
         </button>
-        <div class="mic-hint">或按空格键激活</div>
+        <p class="mic-hint">或按 <kbd>空格键</kbd> 激活语音</p>
       </div>
-
-      <!-- 语音识别文本 -->
-      <div class="transcript-box">
-        <div class="panel-title">🗣 语音识别</div>
-        <div class="interim-text"></div>
-        <div class="final-text">（说话后显示识别结果）</div>
-      </div>
-
-      <!-- 指令解析结果 -->
-      <div class="command-box">
-        <div class="panel-title">⚙️ 指令解析</div>
-        <div class="command-display">（等待指令）</div>
-      </div>
-
-      <!-- 操作历史 -->
-      <div class="history-box">
-        <div class="panel-title">📋 操作历史</div>
-        <ul class="history-list"></ul>
-      </div>
-
-      <!-- 当前画笔状态 -->
-      <div class="brush-state">
-        <div class="panel-title">🖌 当前状态</div>
-        <div class="state-grid">
-          <div class="state-item">
-            <span class="state-label">颜色</span>
-            <span class="state-value">
-              <span class="color-preview" style="background:#e74c3c"></span>红色
-            </span>
-          </div>
-          <div class="state-item">
-            <span class="state-label">大小</span>
-            <span class="state-value">中等(50)</span>
-          </div>
-          <div class="state-item">
-            <span class="state-label">形状</span>
-            <span class="state-value">圆形</span>
-          </div>
-          <div class="state-item">
-            <span class="state-label">位置</span>
-            <span class="state-value">中央</span>
-          </div>
-        </div>
-      </div>
-
     </aside>
+
   </main>
-
-  <!-- Toast 通知占位 -->
-  <div class="toast hidden"></div>
-
-  <!-- 注：JS 功能模块将在后续 PR 中逐步加入 -->
 
 </body>
 </html>
