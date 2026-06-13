@@ -4,12 +4,16 @@
 const CONFIG = {
   // ====== 语音识别配置 ======
   SPEECH: {
-    lang: 'zh-CN',            // 识别语言
-    continuous: false,         // 单次识别（按钮模式）
-    interimResults: true,      // 显示中间结果
-    maxAlternatives: 3,        // 备选结果数量
-    restartDelay: 300,         // 识别结束后重启延迟(ms)
+    lang: 'zh-CN',
+    continuous: true,          // 持续监听（唤醒词模式）
+    interimResults: true,
+    maxAlternatives: 3,
+    restartDelay: 200,         // 重连延迟(ms)
   },
+
+  // ====== 唤醒词 / 停止词 ======
+  WAKE_WORDS:  ['你好', '嗨', '开始', '嘿', '画画', '启动', '听着'],
+  STOP_WORDS:  ['停下', '暂停', '结束', '休息', '停止', '别画了'],
 
   // ====== AI 增强配置（可选，不填则纯规则解析）======
   AI: {
