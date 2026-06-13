@@ -135,14 +135,14 @@ const CONFIG = {
   STYLE_LIST: ['default', 'ink', 'anime', 'sketch'],
 
   // ====== AI 绘画 API 配置 ======
-  // 支持 OpenAI DALL-E / 通义万相 / 文心一格 等兼容接口
-  // 风格由语音输入自然决定，无需预设（说"油画"就是油画，说"水墨"就是水墨）
+  // 推荐：Seedream 4.5（字节跳动），中文理解强，$0.035/张
+  // 接入方式：apyi.com（支付宝/微信）或 deepinfra.com
   AI_DRAW: {
     enabled: false,              // 填入 API Key 后改为 true
-    apiUrl: 'https://api.openai.com/v1/images/generations',
-    apiKey: '',                  // 🔑 在此填入你的 API Key
-    model: 'dall-e-3',
-    imageSize: '1024x1024',     // 生成图片尺寸
-    timeout: 30000,             // 超时(ms)
+    apiUrl: 'https://api.apiyi.com/v1/images/generations',
+    apiKey: '',                  // 🔑 apyi.com 注册后在控制台获取
+    model: 'seedream-4.5',       // 也支持 seedream-5.0 / gpt-image-2 / glm-image
+    imageSize: '1024x1024',      // 生成图片尺寸
+    timeout: 30000,              // 超时(ms)
   },
 };
