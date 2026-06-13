@@ -123,6 +123,29 @@ function initUI() {
     if (e.target === $('help-modal')) $('help-modal').classList.add('hidden');
   });
 
+  // 工具栏按钮
+  $('btn-undo').addEventListener('click', () => {
+    const ok = drawEngine.undo();
+    if (ok) { updateVoiceCursor(); addHistory('↩️', '撤销'); showToast('↩️ 已撤销', 'success'); }
+    else showToast('⚠️ 没有可撤销的操作', 'warning');
+  });
+  $('btn-clear').addEventListener('click', () => {
+    drawEngine.clear();
+    historyItems = [];
+    $('history-list').innerHTML = '';
+    addHistory('🗑️', '清空画布');
+    showToast('🗑️ 画布已清空', 'success');
+  });
+  $('btn-save').addEventListener('click', () => {
+    drawEngine.save();
+    addHistory('💾', '保存图片');
+    showToast('💾 图片已保存', 'success');
+  });
+
+  // 全局暴露，方便控制台调试
+  window.draw = drawEngine;
+  window.$$ = drawEngine;
+
   // 更新UI状态显示
   updateBrushStateUI();
   updateVoiceCursor();
@@ -233,6 +256,31 @@ async function processVoiceInput(text) {
         addHistory('↕️', `移动光标→${dirNameCN(result.direction)}`);
         toastMsg = `移动到 (${Math.round(newPos.x*100)}%, ${Math.round(newPos.y*100)}%)`;
         success = true;
+        break;
+      }
+      case CMD_TYPE.DRAW_AI: {
+        if (!CONFIG.AI_DRAW.enabled || !CONFIG.AI_DRAW.apiKey) {
+          setStatus('idle', '⚠️ AI绘画未配置，请在 config.js 设置 API Key');
+          showToast('⚠️ AI绘画未配置，请点击❓查看说明', 'warning', 5000);
+          displayEl.className = 'command-display warning';
+          displayEl.textContent = `AI绘画未配置\n\n语音内容: "${result.prompt}"\n\n请在 js/config.js → AI_DRAW 中配置:\n1. 填入 apiKey\n2. 设置 enabled: true`;
+          return;
+        }
+        setStatus('drawing', `🤖 AI 正在生成: ${result.prompt}`);
+        showToast(`🤖 AI 绘画中: "${result.prompt}"`, '', 2000);
+        displayEl.className = 'command-display';
+        displayEl.textContent = `🤖 AI 绘画中...\n"${result.prompt}"`;
+
+        const aiResult = await drawEngine.drawAI(result.prompt);
+        if (aiResult) {
+          updateVoiceCursor();
+          addHistory('🤖', `AI绘画: ${result.prompt}`);
+          toastMsg = `✅ AI 已绘制: ${result.prompt}`;
+          success = true;
+        } else {
+          toastMsg = '❌ AI 绘画失败';
+          success = false;
+        }
         break;
       }
       default:
