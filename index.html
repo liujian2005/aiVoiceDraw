@@ -171,6 +171,64 @@
   <script src="js/config.js"></script>
   <script src="js/colorMap.js"></script>
   <script src="js/voiceEngine.js"></script>
+  <script src="js/drawEngine.js"></script>
+
+  <!-- PR4: DrawEngine 初始化 + 演示 -->
+  <script>
+    (function() {
+      const engine = new DrawEngine('main-canvas');
+      window.draw = engine;
+      window.$$ = engine;       // 控制台快捷别名
+
+      function demo() {
+        // 几何形状演示（证明引擎可工作）
+        engine.setStyle('default');
+        engine.setColor('#e74c3c');
+        engine.setCursor({ x: 0.18, y: 0.22 });
+        engine.drawShape({ shape: 'circle' });
+
+        engine.setColor('#3498db');
+        engine.setCursor({ x: 0.42, y: 0.22 });
+        engine.drawShape({ shape: 'rect' });
+
+        engine.setColor('#f1c40f');
+        engine.setCursor({ x: 0.65, y: 0.22 });
+        engine.drawShape({ shape: 'star' });
+
+        engine.setColor('#2ecc71');
+        engine.setCursor({ x: 0.82, y: 0.22 });
+        engine.drawShape({ shape: 'triangle' });
+
+        engine.setCursor({ x: 0.5, y: 0.58 });
+        engine.drawScene({ scene: 'face' });
+
+        engine.setStyle('default');
+
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🎨 VoiceDraw DrawEngine 已就绪');
+        console.log('');
+        console.log('📐 几何绘图（本地 Canvas，<10ms）：');
+        console.log('  $$.drawShape({ shape:"star", color:"#f1c40f", size:80 })');
+        console.log('  $$.drawScene({ scene:"sun" })');
+        console.log('  $$.setColor("#e74c3c")   $$.setStyle("ink|anime|sketch")');
+        console.log('');
+        console.log('🤖 AI 绘画（语音驱动，任意内容+任意风格）：');
+        console.log('  1. js/config.js → AI_DRAW 填入 apiKey');
+        console.log('  2. AI_DRAW.enabled = true');
+        console.log('  3. 风格由你说的内容自然决定：');
+        console.log('     $$.drawAI("水墨画：孤舟蓑笠翁，独钓寒江雪")');
+        console.log('     $$.drawAI("油画风格的一束向日葵")');
+        console.log('     $$.drawAI("宫崎骏动画风格的森林小屋")');
+        console.log('     $$.drawAI("铅笔素描：一只猫在窗台上")');
+        console.log('     $$.drawAI("赛博朋克风格的东京夜景，4K")');
+        console.log('');
+        console.log('🔧 其他：$$.undo() | $$.redo() | $$.clear() | $$.save()');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      }
+
+      setTimeout(demo, 200);
+    })();
+  </script>
 
 </body>
 </html>
