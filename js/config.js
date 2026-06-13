@@ -141,7 +141,7 @@ const CONFIG = {
     enabled: false,              // 填入 API Key 后改为 true
     apiUrl: 'https://api.apiyi.com/v1/images/generations',
     apiKey: '',                  // 🔑 apyi.com 注册后在控制台获取
-    model: 'seedream-4.5',       // 也支持 seedream-5.0 / gpt-image-2 / glm-image
+    model: 'seedream-5-0-260128', // Seedream 5.0 最新版，$0.035
     imageSize: '1024x1024',      // 生成图片尺寸
     timeout: 30000,              // 超时(ms)
   },
