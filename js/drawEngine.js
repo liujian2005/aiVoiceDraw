@@ -126,12 +126,18 @@ class DrawEngine {
     const ctx = this.ctx;
 
     ctx.save();
-    ctx.fillStyle = effectiveColor;
-    ctx.strokeStyle = this._darken(effectiveColor, 0.2);
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = this.brush.opacity;
+    const { fillColor, strokeColor, style } = this._applyBrushStyle(ctx, effectiveColor);
 
-    this._addShadow(ctx, effectiveColor);
+    // 水墨风格：圆形/椭圆用径向渐变模拟水彩渗透
+    const useInkGrad = style.gradientFill && (shape === 'circle' || shape === 'ellipse');
+    if (useInkGrad && shape === 'circle') {
+      ctx.fillStyle = this._createInkGradient(ctx, x, y, effectiveSize / 2, fillColor);
+    } else if (useInkGrad && shape === 'ellipse') {
+      ctx.fillStyle = this._createInkGradient(ctx, x, y, effectiveSize * 0.6, fillColor);
+    } else {
+      ctx.fillStyle = fillColor;
+    }
+    ctx.strokeStyle = strokeColor;
 
     switch (shape) {
       case 'circle':
@@ -156,6 +162,11 @@ class DrawEngine {
         this._drawCircle(ctx, x, y, effectiveSize / 2);
     }
 
+    // 素描风格：叠加排线阴影
+    if (style.hatching && effectiveSize > 20) {
+      this._drawHatching(ctx, x, y, effectiveSize);
+    }
+
     ctx.restore();
     return { x, y, size: effectiveSize, color: effectiveColor };
   }
@@ -167,6 +178,27 @@ class DrawEngine {
     this._saveState();
 
     const { x, y } = this._toPixel(effectivePos);
+    const ctx = this.ctx;
+    const style = this._getStyleConfig();
+
+    ctx.save();
+
+    // 应用风格滤镜
+    if (style.grayScale) {
+      ctx.filter = 'grayscale(100%)';
+    } else if (style.brightColor) {
+      ctx.filter = 'saturate(130%)';
+    } else if (style.mutedColor) {
+      ctx.filter = 'saturate(60%)';
+    }
+
+    // 阴影
+    if (style.shadowBlur > 0) {
+      ctx.shadowColor = style.shadowColor || 'rgba(0,0,0,0.25)';
+      ctx.shadowBlur = style.shadowBlur;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 3;
+    }
 
     switch (scene) {
       case 'sun':    this._drawSun(x, y, color); break;
@@ -179,6 +211,123 @@ class DrawEngine {
       case 'rainbow':  this._drawRainbow(x, y); break;
       case 'car':    this._drawCar(x, y, color); break;
     }
+
+    // 素描排线
+    if (style.hatching) {
+      this._drawHatching(ctx, x, y, 120);
+    }
+
+    ctx.restore();
+  }
+
+  // ====== AI 绘画：语音驱动，任意内容 ======
+  /**
+   * 根据语音描述，调用 AI 绘画 API 生成图像并绘制到画布
+   * 风格由语音内容自然决定——说"油画"就是油画，说"水墨"就是水墨，说"3D渲染"也行
+   *
+   * @param {string} prompt - 语音原文，如 "画一只橘猫"、"油画风格的向日葵"、"赛博朋克夜景"
+   * @param {object} options - { position, size }
+   * @returns {Promise<{x,y,w,h,prompt}>}
+   */
+  async drawAI(prompt, options = {}) {
+    const cfg = CONFIG.AI_DRAW;
+    if (!cfg.enabled || !cfg.apiKey) {
+      console.warn('⚠️ AI 绘画未配置。请在 js/config.js → AI_DRAW 中填入 apiKey');
+      console.warn('💡 支持 OpenAI DALL-E / 通义万相 / 文心一格 等兼容接口');
+      return null;
+    }
+
+    this._saveState();
+
+    try {
+      console.log('🎨 AI 绘画:', prompt);
+      const imageDataUrl = await this._callImageAPI(prompt, cfg, options);
+      const img = await this._loadImage(imageDataUrl);
+
+      // 按比例缩放到画布
+      const pos = options.position || this.cursor;
+      const maxPx = options.size || Math.min(this.canvas.width, this.canvas.height) * 0.55;
+      const scale = Math.min(maxPx / img.width, maxPx / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      const px = this._toPixel(pos);
+
+      this.ctx.drawImage(img, px.x - w / 2, px.y - h / 2, w, h);
+
+      console.log('✅ 绘制完成:', `${Math.round(w)}x${Math.round(h)}px`);
+      return { x: px.x, y: px.y, w, h, prompt };
+    } catch (e) {
+      console.error('❌ AI 绘画失败:', e.message);
+      throw e;
+    }
+  }
+
+  /**
+   * 调用 AI 图片生成 API
+   * 支持返回 b64_json 或 url 两种格式
+   */
+  async _callImageAPI(prompt, cfg, options) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), cfg.timeout);
+
+    let response;
+    try {
+      response = await fetch(cfg.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: cfg.model,
+          prompt: prompt,
+          n: 1,
+          size: options.apiSize || cfg.imageSize,
+          response_format: 'b64_json',
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`API ${response.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+
+    // 方式1: base64 直接返回
+    if (data.data?.[0]?.b64_json) {
+      return `data:image/png;base64,${data.data[0].b64_json}`;
+    }
+
+    // 方式2: URL 返回，再 fetch 一次
+    if (data.data?.[0]?.url) {
+      const imgResp = await fetch(data.data[0].url);
+      const blob = await imgResp.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    throw new Error('API 返回格式不匹配，期望 b64_json 或 url');
+  }
+
+  /**
+   * 从 data URL 加载 Image 对象
+   */
+  _loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('图片加载失败'));
+      img.src = src;
+    });
   }
 
   // ===== 基础形状实现 =====
@@ -595,6 +744,118 @@ class DrawEngine {
       g: parseInt(result[2], 16),
       b: parseInt(result[3], 16),
     } : null;
+  }
+
+  // ====== 绘画风格系统 ======
+  setStyle(styleName) {
+    if (CONFIG.STYLES[styleName]) {
+      this.brush.style = styleName;
+    }
+  }
+
+  _getStyleConfig() {
+    return CONFIG.STYLES[this.brush.style] || CONFIG.STYLES.default;
+  }
+
+  _applyBrushStyle(ctx, color) {
+    const style = this._getStyleConfig();
+    let fillColor = color;
+    let strokeColor = style.strokeColor || this._darken(color, 0.3);
+
+    // 素描：转灰度
+    if (style.grayScale) {
+      fillColor = this._toGrayScale(color);
+      strokeColor = this._toGrayScale(strokeColor);
+    }
+    // 水墨：降低饱和度
+    if (style.mutedColor) {
+      fillColor = this._muteColor(fillColor, 0.55);
+      strokeColor = this._muteColor(strokeColor, 0.35);
+    }
+    // 动漫：提高饱和度
+    if (style.brightColor) {
+      fillColor = this._saturateColor(fillColor, 0.35);
+    }
+
+    // 基础属性
+    ctx.globalAlpha = style.fillOpacity;
+    ctx.lineWidth = style.strokeWidth;
+    ctx.lineCap = style.lineCap || 'round';
+    ctx.lineJoin = style.lineJoin || 'round';
+
+    // 阴影：水墨用大阴影模拟墨染，动漫/素描无阴影
+    if (style.shadowBlur > 0) {
+      ctx.shadowColor = style.shadowColor || 'rgba(0,0,0,0.2)';
+      ctx.shadowBlur = style.shadowBlur;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 3;
+    } else {
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
+
+    return { fillColor, strokeColor, style };
+  }
+
+  // 转灰度
+  _toGrayScale(hex) {
+    const rgb = this._hexToRgb(hex);
+    if (!rgb) return hex;
+    const g = Math.round(rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114);
+    return `rgb(${g},${g},${g})`;
+  }
+
+  // 降低饱和度（向灰度靠拢）
+  _muteColor(hex, amount) {
+    const rgb = this._hexToRgb(hex);
+    if (!rgb) return hex;
+    const gray = Math.round(rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114);
+    return `rgb(${Math.round(rgb.r + (gray - rgb.r) * amount)},${Math.round(rgb.g + (gray - rgb.g) * amount)},${Math.round(rgb.b + (gray - rgb.b) * amount)})`;
+  }
+
+  // 提高饱和度
+  _saturateColor(hex, amount) {
+    const rgb = this._hexToRgb(hex);
+    if (!rgb) return hex;
+    const avg = (rgb.r + rgb.g + rgb.b) / 3;
+    return `rgb(${Math.min(255, Math.round(rgb.r + (rgb.r - avg) * amount))},${Math.min(255, Math.round(rgb.g + (rgb.g - avg) * amount))},${Math.min(255, Math.round(rgb.b + (rgb.b - avg) * amount))})`;
+  }
+
+  // 创建水墨渐变（径向，中心浓边缘淡）
+  _createInkGradient(ctx, x, y, r, color) {
+    const grad = ctx.createRadialGradient(x, y, r * 0.1, x, y, r);
+    grad.addColorStop(0, color);
+    grad.addColorStop(0.7, color);
+    grad.addColorStop(1, 'rgba(255,255,255,0.1)');
+    return grad;
+  }
+
+  // 素描排线
+  _drawHatching(ctx, x, y, size) {
+    const s = size * 0.6;
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 0.5;
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    for (let a = -1; a <= 1; a += 2) {
+      const angle = (Math.PI / 3.5) * a;
+      const spacing = 4;
+      const perpX = Math.cos(angle + Math.PI / 2);
+      const perpY = Math.sin(angle + Math.PI / 2);
+      const dirX = Math.cos(angle);
+      const dirY = Math.sin(angle);
+      for (let d = -s; d <= s; d += spacing) {
+        ctx.beginPath();
+        ctx.moveTo(x + perpX * d + dirX * s, y + perpY * d + dirY * s);
+        ctx.lineTo(x + perpX * d - dirX * s, y + perpY * d - dirY * s);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   getBrushState() {
