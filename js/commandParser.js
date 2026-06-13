@@ -7,6 +7,7 @@
 const CMD_TYPE = {
   DRAW_SHAPE:    'draw_shape',     // 绘制形状
   DRAW_SCENE:    'draw_scene',     // 绘制场景（复合）
+  DRAW_AI:       'draw_ai',        // AI 绘画（任意内容）
   DRAW_LINE:     'draw_line',      // 画线
   SET_COLOR:     'set_color',      // 设置颜色
   SET_SIZE:      'set_size',       // 设置大小
@@ -205,7 +206,25 @@ function ruleBasedParse(text) {
     };
   }
 
-  return { type: CMD_TYPE.UNKNOWN, confidence: 0.1, raw: text };
+  // 8. 不匹配任何已知指令 → AI 绘画
+  const prompt = cleanPrompt(text);
+  return {
+    type: CMD_TYPE.DRAW_AI,
+    prompt,
+    confidence: 0.60,
+    raw: text,
+  };
+}
+
+/**
+ * 清洗 prompt — 去掉"画一个""帮我画"等前缀，保留核心描述
+ * "画一只水墨山水画" → "水墨山水画"
+ * "帮我画个油画向日葵" → "油画向日葵"
+ */
+function cleanPrompt(text) {
+  return text
+    .replace(/^(画一个|画个|画一幅|画张|画|帮我画|给我画|来一个|来个|绘制|生成)/, '')
+    .trim();
 }
 
 /**
@@ -322,6 +341,7 @@ function formatParseResult(result) {
     case CMD_TYPE.CLEAR:  return '清空画布';
     case CMD_TYPE.SAVE:   return '保存图片';
     case CMD_TYPE.MOVE:   return `向${dirNameCN(result.direction)}移动 ${result.distance}px`;
+    case CMD_TYPE.DRAW_AI: return `🤖 AI 绘画: "${result.prompt}"`;
     default:              return `未识别指令: "${result.raw}"`;
   }
 }
