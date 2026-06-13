@@ -172,8 +172,9 @@
   <script src="js/colorMap.js"></script>
   <script src="js/voiceEngine.js"></script>
   <script src="js/drawEngine.js"></script>
+  <script src="js/commandParser.js"></script>
 
-  <!-- PR4: DrawEngine 初始化 + 演示 -->
+  <!-- PR5: CommandParser + DrawEngine 联合演示 -->
   <script>
     (function() {
       const engine = new DrawEngine('main-canvas');
@@ -204,25 +205,31 @@
 
         engine.setStyle('default');
 
+        // 演示指令解析
+        const tests = [
+          '画一个红色的大圆形',
+          '画太阳',
+          '撤销',
+          '画一只水墨山水画',
+          '帮我画个油画向日葵',
+          '宫崎骏风格的龙猫',
+        ];
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('🎨 VoiceDraw DrawEngine 已就绪');
+        console.log('🧠 VoiceDraw CommandParser + DrawEngine 已就绪');
         console.log('');
-        console.log('📐 几何绘图（本地 Canvas，<10ms）：');
-        console.log('  $$.drawShape({ shape:"star", color:"#f1c40f", size:80 })');
-        console.log('  $$.drawScene({ scene:"sun" })');
-        console.log('  $$.setColor("#e74c3c")   $$.setStyle("ink|anime|sketch")');
+        console.log('📋 指令解析测试：');
+        (async () => {
+          for (const t of tests) {
+            const r = await parseCommand(t);
+            console.log(`  "${t}" → ${r.type} | ${formatParseResult(r)}`);
+          }
+        })();
         console.log('');
-        console.log('🤖 AI 绘画（语音驱动，任意内容+任意风格）：');
-        console.log('  1. js/config.js → AI_DRAW 填入 apiKey');
-        console.log('  2. AI_DRAW.enabled = true');
-        console.log('  3. 风格由你说的内容自然决定：');
-        console.log('     $$.drawAI("水墨画：孤舟蓑笠翁，独钓寒江雪")');
-        console.log('     $$.drawAI("油画风格的一束向日葵")');
-        console.log('     $$.drawAI("宫崎骏动画风格的森林小屋")');
-        console.log('     $$.drawAI("铅笔素描：一只猫在窗台上")');
-        console.log('     $$.drawAI("赛博朋克风格的东京夜景，4K")');
-        console.log('');
-        console.log('🔧 其他：$$.undo() | $$.redo() | $$.clear() | $$.save()');
+        console.log('💡 控制台 API：');
+        console.log('  parseCommand("画一只猫")          // 指令解析');
+        console.log('  $$.drawAI("一只猫")               // AI 绘画');
+        console.log('  $$.drawShape({shape:"star"})      // 几何绘图');
+        console.log('  $$.undo()  $$.clear()  $$.save() // 操作');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       }
 
