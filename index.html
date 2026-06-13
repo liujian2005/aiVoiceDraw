@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI 语音绘图工具 | VoiceDraw</title>
+  <title>AI 语音绘图 | VoiceDraw</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -13,13 +13,7 @@
     <div class="logo">🎙️ VoiceDraw</div>
     <div class="status-area">
       <span id="status-dot" class="status-dot idle"></span>
-      <span id="status-text">等待语音指令...</span>
-    </div>
-    <div class="toolbar-right">
-      <button class="icon-btn" id="btn-undo" title="撤销">↩</button>
-      <button class="icon-btn" id="btn-clear" title="清空">🗑</button>
-      <button class="icon-btn" id="btn-save" title="保存">💾</button>
-      <button class="icon-btn" id="btn-help" title="帮助">❓</button>
+      <span id="status-text">💤 说「你好」唤醒我</span>
     </div>
   </header>
 
@@ -35,72 +29,52 @@
       <div class="voice-cursor" id="voice-cursor" style="left:50%; top:50%;"></div>
     </section>
 
-    <!-- 侧面板 — 全部功能区 -->
+    <!-- 侧面板 -->
     <aside class="side-panel">
 
-      <!-- 麦克风 -->
+      <!-- 唤醒状态 -->
       <div class="mic-section">
-        <button class="mic-btn" id="mic-btn">
-          <span class="mic-icon">🎙️</span>
-          <span class="mic-label">按住说话</span>
-        </button>
-        <p class="mic-hint">或按 <kbd>空格键</kbd> 激活语音</p>
+        <div class="wake-indicator" id="wake-indicator">
+          <span class="wake-icon">💤</span>
+          <span class="wake-label">说「你好」唤醒</span>
+        </div>
+        <p class="mic-hint">唤醒后直接说出你想画的内容</p>
       </div>
 
       <!-- 语音识别文本 -->
       <div class="transcript-box">
         <div class="panel-title">🗣️ 语音识别</div>
         <div class="interim-text" id="interim-text"></div>
-        <div class="final-text" id="final-text">"画一个红色的大圆形"</div>
+        <div class="final-text" id="final-text">等待唤醒...</div>
       </div>
 
       <!-- 指令解析 -->
       <div class="command-box">
         <div class="panel-title">⚙️ 指令解析</div>
-        <div class="command-display success" id="command-display">
-          绘制红色圆形<br>尺寸: 大(80)<br>位置: 中央
+        <div class="command-display" id="command-display">
+          说「你好」开始，说「停下」结束
         </div>
       </div>
 
       <!-- 操作历史 -->
       <div class="history-box">
         <div class="panel-title">📋 操作历史</div>
-        <ul class="history-list" id="history-list">
-          <li class="history-item">
-            <span class="hi-icon">🎨</span>
-            <span class="hi-text">画了红色圆形</span>
-            <span class="hi-time">14:32:15</span>
-          </li>
-          <li class="history-item">
-            <span class="hi-icon">🖼️</span>
-            <span class="hi-text">绘制场景: 太阳</span>
-            <span class="hi-time">14:31:58</span>
-          </li>
-          <li class="history-item">
-            <span class="hi-icon">🎨</span>
-            <span class="hi-text">颜色→蓝色</span>
-            <span class="hi-time">14:31:42</span>
-          </li>
-        </ul>
+        <ul class="history-list" id="history-list"></ul>
       </div>
 
       <!-- 画笔状态 -->
       <div class="brush-state">
-        <div class="panel-title">🖌️ 当前状态</div>
+        <div class="panel-title">🖌️ 当前画笔</div>
         <div class="state-grid">
           <div class="state-item">
             <span class="state-label">颜色</span>
             <span class="state-value" id="state-color">
-              <span class="color-preview" id="color-preview" style="background:#e85d3a"></span>红色
+              <span class="color-preview" id="color-preview" style="background:#e74c3c"></span>红色
             </span>
           </div>
           <div class="state-item">
             <span class="state-label">大小</span>
-            <span class="state-value" id="state-size">80px</span>
-          </div>
-          <div class="state-item">
-            <span class="state-label">形状</span>
-            <span class="state-value" id="state-shape">圆形</span>
+            <span class="state-value" id="state-size">50px</span>
           </div>
           <div class="state-item">
             <span class="state-label">位置</span>
@@ -113,61 +87,9 @@
   </main>
 
   <!-- Toast -->
-  <div class="toast show success" id="toast">✅ 演示模式 — 完整界面预览</div>
+  <div class="toast show" id="toast">🎙️ 说「你好」唤醒我</div>
 
-  <!-- 帮助弹窗 -->
-  <div class="modal" id="help-modal" style="display:none;">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>📖 语音指令指南</h2>
-        <button class="close-btn" id="close-help">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="cmd-section">
-          <h3>🔷 基础形状</h3>
-          <ul>
-            <li>画一个圆 / 画方形 / 画三角形</li>
-            <li>画星星 / 画一条线 / 画菱形</li>
-            <li>画爱心 / 画椭圆 / 画箭头</li>
-          </ul>
-        </div>
-        <div class="cmd-section">
-          <h3>🎨 颜色控制</h3>
-          <ul>
-            <li>画一个红色圆形 / 蓝色方形</li>
-            <li>把颜色改成绿色 / 换成紫色</li>
-            <li>支持 100+ 种中文颜色名</li>
-          </ul>
-        </div>
-        <div class="cmd-section">
-          <h3>🖼️ 场景绘制</h3>
-          <ul>
-            <li>画太阳 / 画房子 / 画一棵树</li>
-            <li>画笑脸 / 画云 / 画花朵</li>
-            <li>画山 / 画彩虹 / 画汽车</li>
-          </ul>
-        </div>
-        <div class="cmd-section">
-          <h3>📏 大小 &amp; 位置</h3>
-          <ul>
-            <li>画大圆 / 画巨大方形 / 小三角</li>
-            <li>在左边画 / 右上角画星星</li>
-            <li>放大 / 缩小 / 向左移动</li>
-          </ul>
-        </div>
-        <div class="cmd-section" style="grid-column: 1 / -1;">
-          <h3>⚡ 操作指令</h3>
-          <ul style="display:flex; gap:20px;">
-            <li>撤销 / 重做</li>
-            <li>清空画布</li>
-            <li>保存图片</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ====== JS 模块（按依赖顺序加载）====== -->
+  <!-- ====== JS 模块 ====== -->
   <script src="js/config.js"></script>
   <script src="js/colorMap.js"></script>
   <script src="js/voiceEngine.js"></script>
