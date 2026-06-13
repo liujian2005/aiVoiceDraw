@@ -237,8 +237,6 @@ class DrawEngine {
       return null;
     }
 
-    this._saveState();
-
     try {
       console.log('🎨 AI 绘画:', prompt);
       const imageDataUrl = await this._callImageAPI(prompt, cfg, options);
@@ -252,14 +250,178 @@ class DrawEngine {
       const h = img.height * scale;
       const px = this._toPixel(pos);
 
-      this.ctx.drawImage(img, px.x - w / 2, px.y - h / 2, w, h);
+      // 保存当前画布状态，用于动画逐帧还原
+      const bgSnapshot = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
 
+      // 揭示动画：从中心向外扩散，模拟绘画过程
+      await this._revealAnimation(img, bgSnapshot, px.x, px.y, w, h);
+
+      this._saveState();
       console.log('✅ 绘制完成:', `${Math.round(w)}x${Math.round(h)}px`);
       return { x: px.x, y: px.y, w, h, prompt };
     } catch (e) {
       console.error('❌ AI 绘画失败:', e.message);
       throw e;
     }
+  }
+
+  /**
+   * 模拟人绘画过程 — 线稿 → 铺色 → 细节 → 成稿
+   * 阶段1(0-30%): 仅线稿，模拟起形
+   * 阶段2(30-60%): 线稿 + 粗略色块，模拟铺底色
+   * 阶段3(60-85%): 线稿淡出 + 细节增强，模拟深入刻画
+   * 阶段4(85-100%): 完整成品
+   */
+  _revealAnimation(img, bgSnapshot, cx, cy, w, h, duration = 2500) {
+    return new Promise(resolve => {
+      // 先将图片绘制到离屏 Canvas 用于像素处理
+      const off = document.createElement('canvas');
+      off.width = this.canvas.width;
+      off.height = this.canvas.height;
+      const octx = off.getContext('2d');
+      octx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+      const fullData = octx.getImageData(0, 0, off.width, off.height);
+
+      // 预处理：提取边缘 + 模糊版本
+      const edgeData = this._sobelEdges(fullData);
+      const blurHeavy = this._gaussianBlur(fullData, 12);
+      const blurLight = this._gaussianBlur(fullData, 4);
+
+      const start = performance.now();
+
+      const frame = (now) => {
+        const t = Math.min((now - start) / duration, 1);
+
+        // 还原背景
+        this.ctx.putImageData(bgSnapshot, 0, 0);
+
+        if (t < 0.30) {
+          // 阶段1：纯线稿（起形）
+          const p = t / 0.30;
+          this.ctx.putImageData(edgeData, 0, 0);
+          this.ctx.globalAlpha = 0.3 + p * 0.4;
+
+        } else if (t < 0.60) {
+          // 阶段2：线稿 + 粗略色块（铺底色）
+          const p = (t - 0.30) / 0.30;
+          // 先画模糊色块
+          this.ctx.putImageData(blurHeavy, 0, 0);
+          // 再叠线稿
+          this.ctx.globalAlpha = 1 - p * 0.6;
+          this.ctx.putImageData(edgeData, 0, 0);
+          this.ctx.globalAlpha = 1.0;
+
+        } else if (t < 0.85) {
+          // 阶段3：线稿淡出 + 细节增强
+          const p = (t - 0.60) / 0.25;
+          // 画轻度模糊（接近成品）
+          this.ctx.putImageData(blurLight, 0, 0);
+          // 线稿逐渐消失
+          this.ctx.globalAlpha = (1 - p) * 0.6;
+          this.ctx.putImageData(edgeData, 0, 0);
+          this.ctx.globalAlpha = 1.0;
+
+        } else {
+          // 阶段4：成品
+          const p = (t - 0.85) / 0.15;
+          // 从轻度模糊过渡到完全清晰
+          if (p < 1) {
+            // 混合模糊版和原版
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = off.width;
+            finalCanvas.height = off.height;
+            const fctx = finalCanvas.getContext('2d');
+            fctx.putImageData(blurLight, 0, 0);
+            fctx.globalAlpha = p;
+            fctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+            const mixed = fctx.getImageData(0, 0, off.width, off.height);
+            this.ctx.putImageData(mixed, 0, 0);
+          } else {
+            this.ctx.putImageData(fullData, 0, 0);
+          }
+        }
+
+        if (t < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          this.ctx.putImageData(fullData, 0, 0);
+          resolve();
+        }
+      };
+
+      requestAnimationFrame(frame);
+    });
+  }
+
+  /** Sobel 边缘检测 — 提取线稿 */
+  _sobelEdges(imageData) {
+    const { width, height, data } = imageData;
+    const out = new ImageData(width, height);
+    const gray = new Float32Array(width * height);
+
+    // 转灰度
+    for (let i = 0; i < gray.length; i++) {
+      gray[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+    }
+
+    // Sobel
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const idx = y * width + x;
+        const gx = -gray[idx - width - 1] + gray[idx - width + 1]
+                 - 2 * gray[idx - 1] + 2 * gray[idx + 1]
+                 - gray[idx + width - 1] + gray[idx + width + 1];
+        const gy = -gray[idx - width - 1] - 2 * gray[idx - width] - gray[idx - width + 1]
+                 + gray[idx + width - 1] + 2 * gray[idx + width] + gray[idx + width + 1];
+        const mag = Math.min(Math.sqrt(gx * gx + gy * gy), 255);
+        const inv = 255 - mag;
+        const i = idx * 4;
+        out.data[i] = out.data[i + 1] = out.data[i + 2] = inv;
+        out.data[i + 3] = Math.min(mag * 2, 255); // 暗处更不透明
+      }
+    }
+    return out;
+  }
+
+  /** 简易高斯模糊 — 用均值近似 */
+  _gaussianBlur(imageData, radius) {
+    const { width, height, data } = imageData;
+    // 先水平模糊
+    const hPass = new Uint8ClampedArray(data.length);
+    const r = Math.max(1, radius);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let rSum = 0, gSum = 0, bSum = 0, aSum = 0, count = 0;
+        for (let dx = -r; dx <= r; dx++) {
+          const sx = x + dx;
+          if (sx < 0 || sx >= width) continue;
+          const i = (y * width + sx) * 4;
+          rSum += data[i]; gSum += data[i + 1]; bSum += data[i + 2]; aSum += data[i + 3];
+          count++;
+        }
+        const i = (y * width + x) * 4;
+        hPass[i] = rSum / count; hPass[i + 1] = gSum / count;
+        hPass[i + 2] = bSum / count; hPass[i + 3] = aSum / count;
+      }
+    }
+    // 再垂直模糊
+    const out = new ImageData(width, height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let rSum = 0, gSum = 0, bSum = 0, aSum = 0, count = 0;
+        for (let dy = -r; dy <= r; dy++) {
+          const sy = y + dy;
+          if (sy < 0 || sy >= height) continue;
+          const i = (sy * width + x) * 4;
+          rSum += hPass[i]; gSum += hPass[i + 1]; bSum += hPass[i + 2]; aSum += hPass[i + 3];
+          count++;
+        }
+        const i = (y * width + x) * 4;
+        out.data[i] = rSum / count; out.data[i + 1] = gSum / count;
+        out.data[i + 2] = bSum / count; out.data[i + 3] = aSum / count;
+      }
+    }
+    return out;
   }
 
   /**
