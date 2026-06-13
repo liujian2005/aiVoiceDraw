@@ -283,7 +283,7 @@ class DrawEngine {
           prompt: prompt,
           n: 1,
           size: options.apiSize || cfg.imageSize,
-          response_format: 'b64_json',
+          response_format: 'url',       // url 兼容性更广
         }),
         signal: controller.signal,
       });
