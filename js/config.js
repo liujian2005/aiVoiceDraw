@@ -36,8 +36,9 @@ const CONFIG = {
     color: '#e74c3c',    // 默认颜色：红色
     size: 50,            // 默认尺寸
     shape: 'circle',     // 默认形状
+    style: 'default',    // 默认风格
     opacity: 1.0,
-    lineWidth: 3,        // 画线时的线宽
+    lineWidth: 3,
   },
 
   // ====== 位置映射（相对于画布的百分比）======
@@ -71,4 +72,73 @@ const CONFIG = {
   // ====== 历史记录最大条数 ======
   MAX_HISTORY: 30,
   MAX_UNDO_STACK: 20,
+
+  // ====== 绘画风格 ======
+  STYLES: {
+    ink: {
+      name: '水墨',
+      icon: '🖌️',
+      strokeWidth: 3,
+      strokeColor: '#1a1a1a',
+      fillOpacity: 0.6,
+      shadowBlur: 12,
+      shadowColor: 'rgba(0,0,0,0.35)',
+      gradientFill: true,
+      inkBleed: true,
+      mutedColor: true,        // 降低饱和度模拟水墨
+      lineCap: 'round',
+      lineJoin: 'round',
+    },
+    anime: {
+      name: '动漫',
+      icon: '✨',
+      strokeWidth: 3.5,
+      strokeColor: '#2d3436',
+      fillOpacity: 1.0,
+      shadowBlur: 0,
+      gradientFill: false,
+      cellShade: true,
+      brightColor: true,       // 鲜艳色彩
+      lineCap: 'round',
+      lineJoin: 'round',
+    },
+    sketch: {
+      name: '素描',
+      icon: '✏️',
+      strokeWidth: 1.2,
+      strokeColor: '#555555',
+      fillOpacity: 0.12,
+      shadowBlur: 0,
+      grayScale: true,
+      hatching: true,
+      roughLine: true,
+      lineCap: 'round',
+      lineJoin: 'round',
+    },
+    default: {
+      name: '默认',
+      icon: '🎨',
+      strokeWidth: 2,
+      fillOpacity: 1.0,
+      shadowBlur: 8,
+      gradientFill: false,
+      lineCap: 'round',
+      lineJoin: 'round',
+    },
+  },
+
+  // 风格列表（UI 遍历用）
+  STYLE_LIST: ['default', 'ink', 'anime', 'sketch'],
+
+  // ====== AI 绘画 API 配置 ======
+  // 支持 OpenAI DALL-E / 通义万相 / 文心一格 等兼容接口
+  // 风格由语音输入自然决定，无需预设（说"油画"就是油画，说"水墨"就是水墨）
+  AI_DRAW: {
+    enabled: false,              // 填入 API Key 后改为 true
+    apiUrl: 'https://api.openai.com/v1/images/generations',
+    apiKey: '',                  // 🔑 在此填入你的 API Key
+    model: 'dall-e-3',
+    imageSize: '1024x1024',     // 生成图片尺寸
+    timeout: 30000,             // 超时(ms)
+  },
 };
