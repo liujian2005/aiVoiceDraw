@@ -204,6 +204,7 @@ body {
 .canvas-area {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 28px;
@@ -747,3 +748,5 @@ body {
   #main-canvas { max-width: 100%; max-height: calc(100vh - 360px); }
   .sketchbook::before { display: none; }
 }
+
+

@@ -51,7 +51,7 @@ const ACTION_KEYWORDS = {
   undo:  ['撤销', '取消', '退一步', '撤回', '回退', '上一步', '撤'],
   redo:  ['重做', '恢复', '还原', '前进一步'],
   clear: ['清空', '清除', '清屏', '重新开始', '全部删掉', '清空画布', '删掉所有'],
-  save:  ['保存', '下载', '保存图片', '存一下', '下载图片'],
+  save:  ['保存', '下载', '保存图片', '存一下', '下载图片', '导出', '导出图片'],
 };
 
 // ===== 位置关键词 =====
@@ -206,15 +206,15 @@ function ruleBasedParse(text) {
     };
   }
 
-  // 8. 不匹配任何已知指令 → AI 绘画
-  const prompt = cleanPrompt(text);
-  return {
-    type: CMD_TYPE.DRAW_AI,
-    prompt,
-    confidence: 0.60,
-    raw: text,
-  };
-}
+    // 8. 不匹配任何已知指令 → AI 绘画
+    const prompt = cleanPrompt(text);
+    return {
+      type: CMD_TYPE.DRAW_AI,
+      prompt,
+      confidence: 0.60,
+      raw: text,
+    };
+  }
 
 /**
  * 清洗 prompt — 去掉"画一个""帮我画"等前缀，保留核心描述
@@ -341,7 +341,7 @@ function formatParseResult(result) {
     case CMD_TYPE.CLEAR:  return '清空画布';
     case CMD_TYPE.SAVE:   return '保存图片';
     case CMD_TYPE.MOVE:   return `向${dirNameCN(result.direction)}移动 ${result.distance}px`;
-    case CMD_TYPE.DRAW_AI: return `🤖 AI 绘画: "${result.prompt}"`;
+    case CMD_TYPE.DRAW_AI:    return `🤖 AI 绘画: "${result.prompt}"`;
     default:              return `未识别指令: "${result.raw}"`;
   }
 }
