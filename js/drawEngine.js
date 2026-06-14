@@ -220,29 +220,62 @@ class DrawEngine {
     ctx.restore();
   }
 
-  // ====== AI 绘画：语音驱动，任意内容 ======
+  // ====== AI 绘图混合模式：语音驱动，LLM 决定画笔指令 or Seedream 出图 ======
   /**
-   * 根据语音描述，调用 AI 绘画 API 生成图像并绘制到画布
-   * 风格由语音内容自然决定——说"油画"就是油画，说"水墨"就是水墨，说"3D渲染"也行
+   * 根据语音描述，让 LLM 判断：简单几何→画笔指令，复杂内容→Seedream 出图
    *
-   * @param {string} prompt - 语音原文，如 "画一只橘猫"、"油画风格的向日葵"、"赛博朋克夜景"
+   * @param {string} prompt - 语音原文，如 "画一只橘猫"、"画一个笑脸"
    * @param {object} options - { position, size }
-   * @returns {Promise<{x,y,w,h,prompt}>}
+   * @returns {Promise<{prompt, mode, ...}>}
    */
   async drawAI(prompt, options = {}) {
-    const cfg = CONFIG.AI_DRAW;
+    const cfg = CONFIG.AI;
     if (!cfg.enabled || !cfg.apiKey) {
-      console.warn('⚠️ AI 绘画未配置。请在 js/config.js → AI_DRAW 中填入 apiKey');
-      console.warn('💡 支持 OpenAI DALL-E / 通义万相 / 文心一格 等兼容接口');
+      console.warn('⚠️ AI 模式未配置。请在 js/config.js → AI 中填入 apiKey');
       return null;
     }
 
     try {
-      console.log('🎨 AI 绘画:', prompt);
+      console.log('🤖 AI 绘图:', prompt);
+      // 1. 调用 LLM，让它决定用画笔指令还是 Seedream 出图
+      const llmResult = await this._callLLMForDrawing(prompt, cfg);
+      console.log('📥 LLM 返回:', llmResult);
+
+      if (llmResult.mode === 'image') {
+        // 复杂内容 → 调用 Seedream 5.0 出图
+        console.log('🖼️ 走 Seedream 出图模式');
+        return await this._drawAIByImage(llmResult.prompt || prompt, options);
+      } else {
+        // 简单几何 → 执行画笔指令
+        const instructions = llmResult;
+        if (!Array.isArray(instructions) || instructions.length === 0) {
+          throw new Error('LLM 返回的指令格式不正确或为空');
+        }
+        console.log('🖌️ 走画笔指令模式，共', instructions.length, '条指令');
+        await this._executeDrawingInstructions(instructions);
+        this._saveState();
+        return { prompt, mode: 'brush', instructionCount: instructions.length };
+      }
+    } catch (e) {
+      console.error('❌ AI 绘图失败:', e.message);
+      throw e;
+    }
+  }
+
+  /**
+   * Seedream 5.0 出图（原 AI_DRAW 逻辑）
+   */
+  async _drawAIByImage(prompt, options = {}) {
+    const cfg = CONFIG.AI_DRAW;
+    if (!cfg.enabled || !cfg.apiKey) {
+      throw new Error('Seedream API 未配置');
+    }
+
+    try {
+      console.log('🎨 Seedream 出图:', prompt);
       const imageDataUrl = await this._callImageAPI(prompt, cfg, options);
       const img = await this._loadImage(imageDataUrl);
 
-      // 按比例缩放到画布
       const pos = options.position || this.cursor;
       const maxPx = options.size || Math.min(this.canvas.width, this.canvas.height) * 0.55;
       const scale = Math.min(maxPx / img.width, maxPx / img.height);
@@ -250,23 +283,20 @@ class DrawEngine {
       const h = img.height * scale;
       const px = this._toPixel(pos);
 
-      // 保存当前画布背景，用于动画逐帧还原
       const bgSnapshot = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-
-      // 揭示动画：线稿 → 铺色 → 细节 → 成稿
       await this._revealAnimation(img, bgSnapshot, px.x, px.y, w, h);
 
       this._saveState();
-      console.log('✅ 绘制完成:', `${Math.round(w)}x${Math.round(h)}px`);
-      return { x: px.x, y: px.y, w, h, prompt };
+      console.log('✅ Seedream 出图完成');
+      return { x: px.x, y: px.y, w, h, prompt, mode: 'image' };
     } catch (e) {
-      console.error('❌ AI 绘画失败:', e.message);
+      console.error('❌ Seedream 出图失败:', e.message);
       throw e;
     }
   }
 
   /**
-   * 调用 AI 图片生成 API
+   * 调用 AI 图片生成 API（Seedream 5.0）
    * 支持返回 b64_json 或 url 两种格式
    */
   async _callImageAPI(prompt, cfg, options) {
@@ -286,13 +316,19 @@ class DrawEngine {
           prompt: prompt,
           n: 1,
           size: options.apiSize || cfg.imageSize,
-          response_format: 'url',       // url 兼容性更广
+          response_format: 'b64_json',
         }),
         signal: controller.signal,
       });
-    } finally {
+    } catch (e) {
       clearTimeout(timeout);
+      if (e.name === 'AbortError') {
+        throw new Error('AI 绘图超时，请尝试简化描述或稍后重试');
+      }
+      throw e;
     }
+
+    clearTimeout(timeout);
 
     if (!response.ok) {
       const errText = await response.text();
@@ -335,82 +371,316 @@ class DrawEngine {
 
   /**
    * 模拟人绘画过程 — 线稿 → 铺色 → 细节 → 成稿
-   * 阶段1(0-30%): 仅线稿，模拟起形
-   * 阶段2(30-60%): 线稿 + 粗略色块，模拟铺底色
-   * 阶段3(60-85%): 线稿淡出 + 细节增强，模拟深入刻画
-   * 阶段4(85-100%): 完整成品
    */
   _revealAnimation(img, bgSnapshot, cx, cy, w, h, duration = 2500) {
     return new Promise(resolve => {
-      const off = document.createElement('canvas');
-      off.width = this.canvas.width;
-      off.height = this.canvas.height;
-      const octx = off.getContext('2d');
-      octx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
-      const fullData = octx.getImageData(0, 0, off.width, off.height);
+      const W = this.canvas.width, H = this.canvas.height;
 
-      // 预处理：提取边缘 + 模糊版本
-      const edgeData = this._sobelEdges(fullData);
-      const blurHeavy = this._gaussianBlur(fullData, 12);
-      const blurLight = this._gaussianBlur(fullData, 4);
+      const makeLayer = (paintFn) => {
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        paintFn(c.getContext('2d'));
+        return c;
+      };
+
+      const fullLayer = makeLayer(ctx => { ctx.drawImage(img, cx - w/2, cy - h/2, w, h); });
+      const fullData  = fullLayer.getContext('2d').getImageData(0, 0, W, H);
+      const edgeLayer = makeLayer(ctx => { ctx.putImageData(this._sobelEdges(fullData), 0, 0); });
+      const blurHeavyLayer = makeLayer(ctx => { ctx.putImageData(this._gaussianBlur(fullData, 12), 0, 0); });
+      const blurLightLayer = makeLayer(ctx => { ctx.putImageData(this._gaussianBlur(fullData, 4), 0, 0); });
+      const bgLayer = makeLayer(ctx => { ctx.putImageData(bgSnapshot, 0, 0); });
 
       const start = performance.now();
 
       const frame = (now) => {
         const t = Math.min((now - start) / duration, 1);
+        const ctx = this.ctx;
 
-        this.ctx.putImageData(bgSnapshot, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.drawImage(bgLayer, 0, 0);
 
         if (t < 0.30) {
-          // 阶段1：纯线稿（起形）
-          const p = t / 0.30;
-          this.ctx.putImageData(edgeData, 0, 0);
-          this.ctx.globalAlpha = 0.3 + p * 0.4;
-
+          ctx.globalAlpha = 0.2 + (t / 0.30) * 0.6;
+          ctx.drawImage(edgeLayer, 0, 0);
         } else if (t < 0.60) {
-          // 阶段2：线稿 + 粗略色块（铺底色）
           const p = (t - 0.30) / 0.30;
-          this.ctx.putImageData(blurHeavy, 0, 0);
-          this.ctx.globalAlpha = 1 - p * 0.6;
-          this.ctx.putImageData(edgeData, 0, 0);
-          this.ctx.globalAlpha = 1.0;
-
+          ctx.globalAlpha = 0.4 + p * 0.5;
+          ctx.drawImage(blurHeavyLayer, 0, 0);
+          ctx.globalAlpha = (1 - p) * 0.7;
+          ctx.drawImage(edgeLayer, 0, 0);
         } else if (t < 0.85) {
-          // 阶段3：线稿淡出 + 细节增强
           const p = (t - 0.60) / 0.25;
-          this.ctx.putImageData(blurLight, 0, 0);
-          this.ctx.globalAlpha = (1 - p) * 0.6;
-          this.ctx.putImageData(edgeData, 0, 0);
-          this.ctx.globalAlpha = 1.0;
-
+          ctx.globalAlpha = 0.6 + p * 0.4;
+          ctx.drawImage(blurLightLayer, 0, 0);
+          ctx.globalAlpha = (1 - p) * 0.5;
+          ctx.drawImage(edgeLayer, 0, 0);
         } else {
-          // 阶段4：成品
           const p = (t - 0.85) / 0.15;
-          if (p < 1) {
-            const finalCanvas = document.createElement('canvas');
-            finalCanvas.width = off.width;
-            finalCanvas.height = off.height;
-            const fctx = finalCanvas.getContext('2d');
-            fctx.putImageData(blurLight, 0, 0);
-            fctx.globalAlpha = p;
-            fctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
-            const mixed = fctx.getImageData(0, 0, off.width, off.height);
-            this.ctx.putImageData(mixed, 0, 0);
-          } else {
-            this.ctx.putImageData(fullData, 0, 0);
-          }
+          ctx.globalAlpha = 1 - p;
+          ctx.drawImage(blurLightLayer, 0, 0);
+          ctx.globalAlpha = p;
+          ctx.drawImage(fullLayer, 0, 0);
         }
+
+        ctx.globalAlpha = 1;
 
         if (t < 1) {
           requestAnimationFrame(frame);
         } else {
-          this.ctx.putImageData(fullData, 0, 0);
+          ctx.drawImage(fullLayer, 0, 0);
           resolve();
         }
       };
 
       requestAnimationFrame(frame);
     });
+  }
+
+  /**
+   * 调用 LLM API，让 LLM 判断用画笔指令还是 Seedream 出图
+   * 返回：数组（画笔模式）或 {mode:"image", prompt:""}（Seedream模式）
+   */
+  async _callLLMForDrawing(prompt, cfg) {
+    const systemPrompt = `你是一个语音绘图 AI。用户用语音描述想画的内容，你需要判断：
+1. 如果内容是简单几何图形（笑脸、太阳、房子、星星、简单图标等），用基础绘图指令表示，返回 JSON 数组
+2. 如果内容复杂（动物、人物、风景、复杂场景等），基础形状画不出好效果，返回 JSON 对象让系统用 AI 出图
+
+## 模式1：画笔指令（简单内容）
+返回纯 JSON 数组，每个元素是绘图指令。
+
+画布坐标系：左上角(0,0)，右下角(1,1)。所有坐标用 0-1 小数。
+
+支持的指令类型：
+[{"type":"circle","params":{"x":0.5,"y":0.5,"r":0.05,"color":"#ff0000","fill":true,"stroke":true}},
+ {"type":"rect","params":{"x":0.3,"y":0.3,"w":0.2,"h":0.15,"color":"#00ff00","fill":true,"stroke":true}},
+ {"type":"line","params":{"x1":0.2,"y1":0.2,"x2":0.8,"y2":0.8,"color":"#000000","width":2}},
+ {"type":"ellipse","params":{"x":0.5,"y":0.5,"rx":0.1,"ry":0.06,"color":"#0000ff","fill":true,"stroke":false}},
+ {"type":"path","params":{"points":[{"x":0.2,"y":0.5},{"x":0.5,"y":0.3},{"x":0.8,"y":0.5}],"color":"#ff00ff","width":3,"closed":false}},
+ {"type":"text","params":{"x":0.5,"y":0.5,"text":"你好","color":"#333333","size":16}},
+ {"type":"clear","params":{}}]
+
+规则：只返回纯 JSON 数组，不要其他文字。坐标用小数，颜色 hex 格式。指令数量要足够多（5-30条），让画面饱满。
+
+## 模式2：AI 出图（复杂内容）
+返回纯 JSON 对象：{"mode":"image","prompt":"用于 AI 出图的英文提示词，描述画面内容，加上艺术风格"}
+- prompt 要用英文，描述要画的画面，加上风格（如 oil painting, anime style, realistic photo 等）
+- 不要加"画"、"生成"等动作词，只描述画面
+
+## 判断标准
+- 简单：笑脸、太阳、房子、星星、字母、数字、简单几何图案 → 画笔指令
+- 复杂：猫、狗、人、动物、风景、建筑、复杂场景 → AI 出图
+
+示例1：
+用户："画一个笑脸"
+你：[{"type":"circle","params":{"x":0.5,"y":0.5,"r":0.15,"color":"#FFD700","fill":true,"stroke":true}},{"type":"circle","params":{"x":0.4,"y":0.45,"r":0.02,"color":"#000000","fill":true,"stroke":false}},{"type":"circle","params":{"x":0.6,"y":0.45,"r":0.02,"color":"#000000","fill":true,"stroke":false}},{"type":"path","params":{"points":[{"x":0.42,"y":0.58},{"x":0.5,"y":0.63},{"x":0.58,"y":0.58}],"color":"#000000","width":2,"closed":false}}]
+
+示例2：
+用户："画一只猫"
+你：{"mode":"image","prompt":"a cute cat, anime style, white background, digital illustration"}
+
+示例3：
+用户："画雪山风景"
+你：{"mode":"image","prompt":"snow mountain landscape, oil painting style, majestic peaks, blue sky"}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), cfg.timeout || 30000);
+
+    let response;
+    try {
+      response = await fetch(cfg.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: cfg.model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `用户说：「${prompt}」` }
+          ],
+          temperature: 0.3,
+          max_tokens: 2000,
+        }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      clearTimeout(timeout);
+      if (e.name === 'AbortError') {
+        throw new Error('AI 指令生成超时，请稍后重试');
+      }
+      throw e;
+    }
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`API ${response.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim();
+
+    if (!content) throw new Error('LLM 返回空结果');
+
+    // 提取 JSON（容错：可能包裹在 markdown/文字中）
+    let jsonStr = content;
+
+    // 方法1：提取 markdown 代码块
+    const codeBlockMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1];
+    }
+
+    // 方法2：找不到代码块，尝试从文字中提取 JSON（数组或对象）
+    if (!jsonStr.trim().startsWith('[') && !jsonStr.trim().startsWith('{')) {
+      // 尝试找 [...] 或 {...}
+      const jsonMatch = content.match(/(\[[\s\S]*\])|(\{[\s\S]*\})/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0] || jsonMatch[2];
+      }
+    }
+
+    // 方法3：去除可能的 trailing commas（LLM 常见错误）
+    jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+
+    try {
+      const parsed = JSON.parse(jsonStr);
+      // 验证：数组（画笔模式）或对象且 mode=image（Seedream模式）
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && parsed.mode === 'image') return parsed;
+      // 兼容旧格式：对象但没有 mode 字段，当作画笔指令（应该不会到这里）
+      throw new Error('未知返回格式');
+    } catch (e) {
+      console.error('JSON 解析失败，原始内容:', content);
+      console.error('提取的 jsonStr:', jsonStr);
+      throw new Error('LLM 返回的不是有效 JSON：' + content.slice(0, 200));
+    }
+  }
+
+  /**
+   * 执行绘图指令序列，逐条显示（简单延迟动画）
+   */
+  async _executeDrawingInstructions(instructions) {
+    const totalSteps = instructions.length;
+    for (let i = 0; i < totalSteps; i++) {
+      const inst = instructions[i];
+      this._drawInstruction(inst, this.ctx);
+      // 延迟一下，让用户看到绘制过程
+      if (i < totalSteps - 1) {
+        const delayMs = Math.max(80, 600 / Math.min(totalSteps, 6));
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+    // 全部画完后保存状态（用于撤销）
+    this._saveState();
+  }
+
+  /**
+   * 执行单条绘图指令（绘制到指定 ctx）
+   */
+  _drawInstruction(inst, ctx) {
+    const { type, params } = inst;
+    ctx.save();
+
+    switch (type) {
+      case 'circle':
+        ctx.fillStyle = params.fill ? params.color : 'transparent';
+        ctx.strokeStyle = params.stroke ? params.color : 'transparent';
+        ctx.lineWidth = params.stroke ? 2 : 0;
+        ctx.beginPath();
+        ctx.arc(
+          params.x * this.canvas.width,
+          params.y * this.canvas.height,
+          params.r * Math.min(this.canvas.width, this.canvas.height),
+          0, Math.PI * 2
+        );
+        if (params.fill) ctx.fill();
+        if (params.stroke) ctx.stroke();
+        break;
+
+      case 'rect':
+        ctx.fillStyle = params.fill ? params.color : 'transparent';
+        ctx.strokeStyle = params.stroke ? params.color : 'transparent';
+        ctx.lineWidth = params.stroke ? 2 : 0;
+        ctx.beginPath();
+        ctx.roundRect(
+          params.x * this.canvas.width - (params.w * this.canvas.width) / 2,
+          params.y * this.canvas.height - (params.h * this.canvas.height) / 2,
+          params.w * this.canvas.width,
+          params.h * this.canvas.height,
+          3
+        );
+        if (params.fill) ctx.fill();
+        if (params.stroke) ctx.stroke();
+        break;
+
+      case 'line':
+        ctx.strokeStyle = params.color;
+        ctx.lineWidth = params.width || 2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(params.x1 * this.canvas.width, params.y1 * this.canvas.height);
+        ctx.lineTo(params.x2 * this.canvas.width, params.y2 * this.canvas.height);
+        ctx.stroke();
+        break;
+
+      case 'ellipse':
+        ctx.fillStyle = params.fill ? params.color : 'transparent';
+        ctx.strokeStyle = params.stroke ? params.color : 'transparent';
+        ctx.lineWidth = params.stroke ? 2 : 0;
+        ctx.beginPath();
+        ctx.ellipse(
+          params.x * this.canvas.width,
+          params.y * this.canvas.height,
+          params.rx * this.canvas.width,
+          params.ry * this.canvas.height,
+          0, 0, Math.PI * 2
+        );
+        if (params.fill) ctx.fill();
+        if (params.stroke) ctx.stroke();
+        break;
+
+      case 'path':
+        ctx.strokeStyle = params.color;
+        ctx.lineWidth = params.width || 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        const pts = params.points;
+        if (pts && pts.length > 0) {
+          ctx.moveTo(pts[0].x * this.canvas.width, pts[0].y * this.canvas.height);
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i].x * this.canvas.width, pts[i].y * this.canvas.height);
+          }
+          if (params.closed) ctx.closePath();
+          ctx.stroke();
+        }
+        break;
+
+      case 'text':
+        ctx.fillStyle = params.color;
+        ctx.font = `${params.size || 16}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(params.text, params.x * this.canvas.width, params.y * this.canvas.height);
+        break;
+
+      case 'setBrush':
+        if (params.color) this.brush.color = params.color;
+        if (params.size) this.brush.size = params.size;
+        break;
+
+      case 'clear':
+        ctx.fillStyle = CONFIG.CANVAS.bgColor;
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        break;
+
+      default:
+        console.warn('未知指令类型:', type);
+    }
+
+    ctx.restore();
   }
 
   /** Sobel 边缘检测 — 提取线稿 */

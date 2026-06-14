@@ -92,6 +92,8 @@ function initVoiceEngine() {
     setStatus('error', '浏览器不支持语音识别');
     showToast('⚠️ 请使用 Chrome 或 Edge 浏览器', 'error', 8000);
   }
+
+
 }
 
 // ===== 核心：处理语音指令 =====
@@ -102,6 +104,7 @@ async function processVoiceInput(text) {
   } catch (e) {
     setStatus('error', '指令解析异常');
     showToast('❌ 解析失败: ' + e.message, 'error');
+    voiceEngine.unbusy();
     setStatus('listening', '🎙️ 请继续说...');
     return;
   }
@@ -189,26 +192,26 @@ async function processVoiceInput(text) {
         break;
       }
       case CMD_TYPE.DRAW_AI: {
-        if (!CONFIG.AI_DRAW.enabled || !CONFIG.AI_DRAW.apiKey) {
-          setStatus('listening', '⚠️ AI绘画未配置');
-          showToast('⚠️ AI绘画未配置，请在 config.js 设置 API Key', 'warning', 5000);
+        if (!CONFIG.AI.enabled || !CONFIG.AI.apiKey) {
+          setStatus('listening', '⚠️ AI指令模式未配置');
+          showToast('⚠️ AI指令模式未配置，请在 config.js → AI 配置 apiKey', 'warning', 5000);
           displayEl.className = 'command-display warning';
-          displayEl.textContent = `AI绘画未配置\n\n你说的是: "${result.prompt}"\n\n在 js/config.js → AI_DRAW 配置 API Key`;
+          displayEl.textContent = `AI指令模式未配置\n\n你说的是: "${result.prompt}"\n\n在 js/config.js → AI 配置 apiKey`;
           return;
         }
-        setStatus('drawing', `🤖 AI 生成: ${result.prompt}`);
-        showToast(`🤖 AI 绘画中...`, '', 0);
+        setStatus('drawing', `🤖 AI 规划中: ${result.prompt}`);
+        showToast(`🤖 AI 正在规划绘画...`, '', 0);
         displayEl.className = 'command-display';
-        displayEl.textContent = `🤖 AI 绘画中...\n"${result.prompt}"`;
+        displayEl.textContent = `🤖 AI 正在规划...\n"${result.prompt}"`;
 
         const aiResult = await drawEngine.drawAI(result.prompt);
         if (aiResult) {
           updateVoiceCursor();
           addHistory('🤖', `AI: ${result.prompt}`);
-          toastMsg = `✅ AI 已绘制: ${result.prompt}`;
+          toastMsg = `✅ AI 已执行指令: ${result.prompt}`;
           success = true;
         } else {
-          toastMsg = '❌ AI 绘画失败';
+          toastMsg = '❌ AI 指令执行失败';
           success = false;
         }
         break;
@@ -222,7 +225,7 @@ async function processVoiceInput(text) {
     displayEl.textContent = formatParseResult(result);
     if (toastMsg) showToast(toastMsg, success ? 'success' : 'warning');
 
-    // 恢复聆听状态（休眠模式则由 onSleep 切换）
+    // 恢复聆听 — 交给 onend 自动重连（手动 start 会与 onend 竞态导致识别卡死）
     if (voiceEngine.getState() === 'active') {
       setStatus('listening', '🎙️ 请继续说...');
     }
@@ -232,6 +235,8 @@ async function processVoiceInput(text) {
     setStatus('error', '执行失败');
     showToast('❌ ' + e.message, 'error');
     setStatus('listening', '🎙️ 请继续说...');
+  } finally {
+    voiceEngine.unbusy();  // 🔓 无论成败，画完解锁
   }
 }
 
