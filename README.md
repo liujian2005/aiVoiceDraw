@@ -19,6 +19,12 @@ VoiceDraw 是一款基于 Web 技术实现的**语音驱动 AI 绘图工具**。
 
 ---
 
+## 🎥 演示视频
+
+👉 [B站观看 VoiceDraw 演示视频](https://www.bilibili.com/video/BV1LkJF6VENm/)
+
+---
+
 ## 🎬 功能演示
 
 ```
